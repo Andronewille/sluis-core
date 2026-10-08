@@ -1,10 +1,13 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Sluis\Tests;
 
 use PHPUnit\Framework\TestCase;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
+use SplFileInfo;
 
 /**
  * The promises Sluis makes, checked mechanically. Sluis exists to keep personal
@@ -36,10 +39,13 @@ class ArchitectureTest extends TestCase
             );
         }
 
-        $composer = json_decode(file_get_contents($this->root().'packages/core/composer.json'), true);
+        $composer = json_decode((string) file_get_contents($this->root().'packages/core/composer.json'), true);
+
+        $this->assertIsArray($composer);
+        $this->assertIsArray($composer['require']);
 
         foreach (array_keys($composer['require']) as $requirement) {
-            $this->assertMatchesRegularExpression('/^(php|ext-[a-z]+)$/', $requirement, "the core has grown a dependency: {$requirement}");
+            $this->assertMatchesRegularExpression('/^(php|ext-[a-z]+)$/', (string) $requirement, "the core has grown a dependency: {$requirement}");
         }
     }
 
@@ -146,7 +152,7 @@ class ArchitectureTest extends TestCase
     private function files(string $dir): iterable
     {
         foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($this->root().$dir)) as $file) {
-            if ($file->getExtension() === 'php') {
+            if ($file instanceof SplFileInfo && $file->getExtension() === 'php') {
                 yield str_replace($this->root(), '', $file->getPathname()) => php_strip_whitespace($file->getPathname());
             }
         }

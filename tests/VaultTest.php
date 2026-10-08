@@ -1,8 +1,12 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Sluis\Tests;
 
+use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
+use RuntimeException;
 use Sluis\Domain\PiiType;
 use Sluis\Domain\Vault;
 use Sluis\Infrastructure\Vaults\JsonFile;
@@ -110,7 +114,7 @@ class VaultTest extends TestCase
 
         $store->write($path = $this->dir.'/v.sealed', $vault);
 
-        $this->assertStringNotContainsString('Karel', file_get_contents($path));
+        $this->assertStringNotContainsString('Karel', (string) file_get_contents($path));
         $this->assertSame('Karel', $store->read($path)->value('voornaam1mask'));
     }
 
@@ -152,5 +156,32 @@ class VaultTest extends TestCase
 
         $this->expectExceptionMessage('SLUIS_VAULT_KEY');
         (new JsonFile)->read($path);
+    }
+
+    /**
+     * A vault that loads half of what it holds puts half the people back and says
+     * it is done. So an entry that is not a type and a value stops the read, and
+     * the message says what is wrong with the file without quoting what is in it.
+     */
+    public function test_a_vault_with_an_entry_it_cannot_read_is_refused(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('not one Sluis wrote');
+
+        Vault::fromArray(['entries' => ['voornaam1mask' => ['type' => 'voornaam', 'value' => ['Karel']]]]);
+    }
+
+    /** Valid JSON is not yet a vault: `"Karel"` decodes without complaint and holds no entries. */
+    public function test_a_file_that_is_json_and_not_a_vault_is_refused(): void
+    {
+        file_put_contents($path = $this->dir.'/v.json', '"Karel"');
+
+        try {
+            (new JsonFile)->read($path);
+            $this->fail('A file that is not a vault was read as one.');
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString('not a vault', $e->getMessage());
+            $this->assertStringNotContainsString('Karel', $e->getMessage());
+        }
     }
 }

@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Sluis\Infrastructure\Vaults;
 
 use RuntimeException;
@@ -34,7 +36,13 @@ final readonly class JsonFile implements VaultStore
             throw new RuntimeException("That vault is sealed; SLUIS_VAULT_KEY is what opens it: {$handle}.");
         }
 
-        return Vault::fromArray(json_decode($json, true, flags: JSON_THROW_ON_ERROR));
+        $data = json_decode($json, true, flags: JSON_THROW_ON_ERROR);
+
+        if (! is_array($data)) {
+            throw new RuntimeException("That file is not a vault: {$handle}.");
+        }
+
+        return Vault::fromArray($data);
     }
 
     /**

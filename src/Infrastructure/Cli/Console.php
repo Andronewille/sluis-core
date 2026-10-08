@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Sluis\Infrastructure\Cli;
 
 use RuntimeException;
@@ -64,6 +66,13 @@ final class Console
         }
 
         $text = $options['raw'] ?? stream_get_contents($in);
+
+        if ($text === false) {
+            fwrite($err, "Sluis could not read its input.\n");
+
+            return 1;
+        }
+
         $store = $this->store();
         $path = $options['vault'] ?? ($options['json'] ? null : 'sluis-vault.json');
 
@@ -78,7 +87,11 @@ final class Console
         }
     }
 
-    /** @param array{strict: bool, json: bool, help: bool} $options */
+    /**
+     * @param  array{strict: bool, json: bool, help: bool}  $options
+     * @param  resource  $out
+     * @param  resource  $err
+     */
     private function forward(string $text, VaultStore $store, ?string $path, array $options, $out, $err): int
     {
         $sluis = Sluis::nederlands(strict: $options['strict']);
@@ -105,6 +118,10 @@ final class Console
         return 0;
     }
 
+    /**
+     * @param  resource  $out
+     * @param  resource  $err
+     */
     private function reverse(string $text, VaultStore $store, ?string $path, $out, $err): int
     {
         if ($path === null || ! $store->exists($path)) {

@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Sluis\Tests;
 
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -40,6 +42,7 @@ class LeakTest extends TestCase
         yield 'an iban and a bsn in one line' => ['NL91 ABNA 0417 1643 00 en 111222333', ['NL91 ABNA 0417 1643 00', '111222333']];
     }
 
+    /** @param list<string> $values */
     #[DataProvider('mail')]
     public function test_nothing_readable_is_left_in_it(string $text, array $values): void
     {

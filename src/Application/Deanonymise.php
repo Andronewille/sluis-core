@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Sluis\Application;
 
 use Sluis\Domain\Restored;

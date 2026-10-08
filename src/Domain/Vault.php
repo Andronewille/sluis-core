@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Sluis\Domain;
 
 use InvalidArgumentException;
@@ -40,16 +42,35 @@ final class Vault
         return new self($strict);
     }
 
-    /** @param array<string, mixed> $data */
+    /**
+     * What comes in here was read from a file or handed over by a caller, so its
+     * shape is checked rather than cast: an entry that is not a type and a value
+     * is refused, because a vault that half loads puts half the people back.
+     *
+     * @param  array<array-key, mixed>  $data
+     */
     public static function fromArray(array $data): self
     {
         $vault = new self((bool) ($data['strict'] ?? false));
+        $entries = $data['entries'] ?? [];
 
-        foreach ($data['entries'] ?? [] as $token => $entry) {
-            $type = PiiType::tryFrom((string) ($entry['type'] ?? ''))
-                ?? throw new InvalidArgumentException("The vault names a type Sluis does not know: {$entry['type']}.");
+        if (! is_array($entries)) {
+            throw new InvalidArgumentException('The vault is not one Sluis wrote: its entries are not a list.');
+        }
 
-            $vault->put((string) $token, $type, (string) $entry['value']);
+        foreach ($entries as $token => $entry) {
+            $type = is_array($entry) ? ($entry['type'] ?? null) : null;
+            $value = is_array($entry) ? ($entry['value'] ?? null) : null;
+
+            if (! is_string($type) || ! is_string($value)) {
+                throw new InvalidArgumentException('The vault is not one Sluis wrote: an entry has no type or no value.');
+            }
+
+            $vault->put(
+                (string) $token,
+                PiiType::tryFrom($type) ?? throw new InvalidArgumentException("The vault names a type Sluis does not know: {$type}."),
+                $value,
+            );
         }
 
         return $vault;
@@ -75,6 +96,8 @@ final class Vault
      * overwritten when the vault is played back over it.
      *
      * @param  callable(string): bool  $taken
+     *
+     * @phpstan-impure
      */
     public function mint(PiiType $type, string $value, callable $taken): string
     {

@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Sluis\Infrastructure\Vaults;
 
 use RuntimeException;
@@ -67,10 +69,14 @@ final readonly class Sealed implements VaultStore
             throw new RuntimeException('That vault did not open with this key.');
         }
 
-        $vault = Vault::fromArray(json_decode($json, true, flags: JSON_THROW_ON_ERROR));
+        $data = json_decode($json, true, flags: JSON_THROW_ON_ERROR);
         sodium_memzero($json);
 
-        return $vault;
+        if (! is_array($data)) {
+            throw new RuntimeException("That file is not a vault: {$handle}.");
+        }
+
+        return Vault::fromArray($data);
     }
 
     public function write(string $handle, Vault $vault): void

@@ -1,6 +1,8 @@
 #!/usr/bin/env php
 <?php
 
+declare(strict_types=1);
+
 use Sluis\Infrastructure\Cli\Console;
 
 // Installed as a dependency, installed on its own, or run out of the workspace.
@@ -12,4 +14,4 @@ foreach ([__DIR__.'/../../../autoload.php', __DIR__.'/../vendor/autoload.php', _
     }
 }
 
-exit((new Console)->run($argv, STDIN, STDOUT, STDERR));
+exit((new Console)->run($argv ?? [], STDIN, STDOUT, STDERR));

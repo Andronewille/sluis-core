@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Sluis\Application\Ports;
 
 use Sluis\Domain\Vault;

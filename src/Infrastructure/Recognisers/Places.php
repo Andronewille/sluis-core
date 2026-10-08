@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Sluis\Infrastructure\Recognisers;
 
 use Sluis\Application\Ports\Recogniser;

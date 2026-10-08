@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Sluis\Domain;
 
 /** What went in, with the people taken out, and the vault that can put them back. */

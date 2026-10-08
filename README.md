@@ -27,7 +27,7 @@ Beste Karel, de boot op Maanstraat 123 in Haasterdam is te bezichtigen. Bel 0612
 composer require andronewille/sluis
 ```
 
-PHP 8.3 or newer with mbstring and sodium. Nothing else comes with it.
+PHP 8.5 or newer with mbstring and sodium. Nothing else comes with it.
 
 ## Usage
 

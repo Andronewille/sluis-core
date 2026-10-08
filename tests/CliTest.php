@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Sluis\Tests;
 
 use PHPUnit\Framework\TestCase;
@@ -57,7 +59,10 @@ class CliTest extends TestCase
 
         $this->assertSame(0, $code);
         $answer = json_decode($out, true, flags: JSON_THROW_ON_ERROR);
+        $this->assertIsArray($answer);
+        $this->assertIsString($answer['text']);
         $this->assertStringContainsString('voornaam1mask', $answer['text']);
+        $this->assertIsArray($answer['vault']);
         $this->assertArrayHasKey('entries', $answer['vault']);
     }
 
@@ -120,7 +125,7 @@ class CliTest extends TestCase
         try {
             [, $masked] = $this->sluis(['--raw='.self::MAIL, '--vault='.$path]);
 
-            $this->assertStringNotContainsString('Karel', file_get_contents($path));
+            $this->assertStringNotContainsString('Karel', (string) file_get_contents($path));
 
             [$code, $restored] = $this->sluis(['--reverse', '--vault='.$path], $masked);
             $this->assertSame(0, $code);
@@ -145,20 +150,32 @@ class CliTest extends TestCase
         $this->assertSame($mail, $restored);
     }
 
-    /** @return array{0: int, 1: string, 2: string} */
+    /**
+     * @param  list<string>  $argv
+     * @return array{0: int, 1: string, 2: string}
+     */
     private function sluis(array $argv, string $stdin = ''): array
     {
-        $in = fopen('php://memory', 'r+');
+        $in = $this->memory();
         fwrite($in, $stdin);
         rewind($in);
-        $out = fopen('php://memory', 'r+');
-        $err = fopen('php://memory', 'r+');
+        $out = $this->memory();
+        $err = $this->memory();
 
         $code = (new Console)->run(['sluis', ...$argv], $in, $out, $err);
 
         rewind($out);
         rewind($err);
 
-        return [$code, stream_get_contents($out), stream_get_contents($err)];
+        return [$code, (string) stream_get_contents($out), (string) stream_get_contents($err)];
+    }
+
+    /** @return resource */
+    private function memory()
+    {
+        $stream = fopen('php://memory', 'r+');
+        $this->assertIsResource($stream);
+
+        return $stream;
     }
 }
