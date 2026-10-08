@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace Sluis\Tests;
 
+use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 use Sluis\Domain\PiiType;
+use Sluis\Infrastructure\Recognisers\Gazetteer;
+use Sluis\Infrastructure\Recognisers\Patterns;
 use Sluis\Sluis;
 
 /**
@@ -141,5 +144,67 @@ class PipelineTest extends TestCase
         $this->assertStringContainsString('voornaam1mask.', $masked->text);
         $this->assertStringNotContainsString('Karel', $masked->text);
         $this->assertSame($text, $sluis->unmask($masked->text, $masked->vault)->text);
+    }
+
+    /**
+     * What is sensitive enough to take out is the caller's decision, and it should
+     * not take assembling six recognisers by hand to make it.
+     */
+    public function test_only_masks_the_kinds_it_was_given(): void
+    {
+        $masked = Sluis::nederlands()->only(PiiType::Telefoon, PiiType::Stad)->mask(self::MAIL);
+
+        $this->assertSame(
+            'Hey Karel, mijn boot kost 250 euro, te bezichtigen aan de Maanstraat 123 in stad1mask. '
+            .'ik ben te bereiken op telefoon1mask. Mvg, Bob',
+            $masked->text,
+        );
+        $this->assertSame(['stad' => 1, 'telefoon' => 1], $masked->found);
+    }
+
+    public function test_without_masks_everything_but_the_kinds_it_was_given(): void
+    {
+        $masked = Sluis::nederlands()->without(PiiType::Adres, PiiType::Stad)->mask(self::MAIL);
+
+        $this->assertSame(
+            'Hey voornaam1mask, mijn boot kost 250 euro, te bezichtigen aan de Maanstraat 123 in Haasterdam. '
+            .'ik ben te bereiken op telefoon1mask. Mvg, voornaam2mask',
+            $masked->text,
+        );
+    }
+
+    /**
+     * The choice is made after the overlaps are settled. `Jan Steenlaan 4` is an
+     * address; leaving addresses alone and then masking the first name the address
+     * had outranked would put a mask in the middle of a street.
+     */
+    public function test_a_kind_that_is_left_alone_still_keeps_what_it_outranked(): void
+    {
+        $text = 'Wij zitten aan de Jan Steenlaan 4.';
+
+        $this->assertSame($text, Sluis::nederlands()->without(PiiType::Adres)->mask($text)->text);
+    }
+
+    /**
+     * The choice belongs to the Sluis and not to the recognisers it had when the
+     * choice was made: one added afterwards is held to it as well, or `only()`
+     * would mean something different depending on where in the line it stood.
+     */
+    public function test_the_choice_holds_for_a_recogniser_added_after_it(): void
+    {
+        $cities = new Gazetteer(PiiType::Stad, ['Haasterdam']);
+        $text = 'Haasterdam is mooi, bel 0612345678.';
+
+        $masked = (new Sluis(new Patterns))->only(PiiType::Telefoon)->plus($cities)->mask($text);
+
+        $this->assertSame('Haasterdam is mooi, bel telefoon1mask.', $masked->text);
+    }
+
+    /** A Sluis that masks nothing reports success on every mail it lets through. */
+    public function test_narrowing_down_to_nothing_is_refused(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        Sluis::nederlands()->only(PiiType::Telefoon)->without(PiiType::Telefoon);
     }
 }

@@ -275,4 +275,31 @@ class CliTest extends TestCase
         $this->assertSame(2, $code);
         $this->assertSame('', $out);
     }
+
+    public function test_an_option_takes_its_value_after_a_space_as_well(): void
+    {
+        $path = $this->dir.'/v.json';
+
+        [, $masked] = $this->sluis(['--vault', $path], self::MAIL);
+        [$code, $restored] = $this->sluis(['unmask', '--vault', $path], $masked);
+
+        $this->assertSame(0, $code);
+        $this->assertSame(self::MAIL, rtrim($restored, "\n"));
+    }
+
+    public function test_an_option_without_its_value_is_asked_wrongly(): void
+    {
+        [$code, , $err] = $this->sluis(['--vault']);
+
+        $this->assertSame(2, $code);
+        $this->assertStringContainsString('--vault needs a path', $err);
+    }
+
+    public function test_it_says_which_version_it_is(): void
+    {
+        [$code, $out] = $this->sluis(['--version']);
+
+        $this->assertSame(0, $code);
+        $this->assertStringStartsWith('sluis ', $out);
+    }
 }

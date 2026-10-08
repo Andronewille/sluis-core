@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Sluis\Infrastructure\Cli;
 
+use Composer\InstalledVersions;
 use RuntimeException;
+use Sluis\Application\Deanonymise;
 use Sluis\Application\Ports\VaultStore;
 use Sluis\Domain\Vault;
 use Sluis\Infrastructure\Vaults\JsonFile;
@@ -30,6 +32,7 @@ final class Console
 
       sluis [mask] [--vault=PATH] [--strict] [--json] [--raw=TEXT]
       sluis unmask [--vault=PATH] [--json] [--raw=TEXT]
+      sluis --help | --version
 
       mask         take the people out and keep them in the vault; what sluis does
                    when it is not told which
@@ -69,6 +72,12 @@ final class Console
 
         if ($options['help']) {
             fwrite($out, self::USAGE."\n");
+
+            return 0;
+        }
+
+        if ($options['version']) {
+            fwrite($out, 'sluis '.$this->version()."\n");
 
             return 0;
         }
@@ -171,7 +180,8 @@ final class Console
             return 3;
         }
 
-        $restored = Sluis::nederlands()->unmask($text, $vault);
+        // Not through `Sluis`: putting back needs no recogniser, so none is built.
+        $restored = (new Deanonymise)($text, $vault);
 
         if ($json) {
             fwrite($out, json_encode([
@@ -208,11 +218,11 @@ final class Console
 
     /**
      * @param  list<string>  $arguments
-     * @return array{unmask: bool, raw: ?string, vault: ?string, strict: bool, json: bool, help: bool}
+     * @return array{unmask: bool, raw: ?string, vault: ?string, strict: bool, json: bool, help: bool, version: bool}
      */
     private function options(array $arguments): array
     {
-        $options = ['unmask' => false, 'raw' => null, 'vault' => null, 'strict' => false, 'json' => false, 'help' => false];
+        $options = ['unmask' => false, 'raw' => null, 'vault' => null, 'strict' => false, 'json' => false, 'help' => false, 'version' => false];
 
         // The command comes first or not at all: a bare word further on is a
         // mistake, and guessing that `sluis --json unmask` meant the command
@@ -221,13 +231,18 @@ final class Console
             $options['unmask'] = array_shift($arguments) === 'unmask';
         }
 
-        foreach ($arguments as $argument) {
+        while ($arguments !== []) {
+            $argument = array_shift($arguments);
+            [$name, $value] = str_contains($argument, '=') ? explode('=', $argument, 2) : [$argument, null];
+
+            // `--vault=PATH` and `--vault PATH` are the same question.
             match (true) {
-                str_starts_with($argument, '--raw=') => $options['raw'] = substr($argument, 6),
-                str_starts_with($argument, '--vault=') => $options['vault'] = substr($argument, 8),
+                $name === '--raw' => $options['raw'] = $value ?? array_shift($arguments) ?? throw new RuntimeException('--raw needs the text.'),
+                $name === '--vault' => $options['vault'] = $value ?? array_shift($arguments) ?? throw new RuntimeException('--vault needs a path.'),
                 $argument === '--strict' => $options['strict'] = true,
                 $argument === '--json' => $options['json'] = true,
                 $argument === '--help' || $argument === '-h' => $options['help'] = true,
+                $argument === '--version' => $options['version'] = true,
                 $argument === '--reverse' => throw new RuntimeException('--reverse is now a command: sluis unmask.'),
                 default => throw new RuntimeException("Sluis does not know {$argument}."),
             };
@@ -238,6 +253,14 @@ final class Console
         }
 
         return $options;
+    }
+
+    /** What Composer installed, which is the only place a version is written down. */
+    private function version(): string
+    {
+        return InstalledVersions::isInstalled('andronewille/sluis')
+            ? InstalledVersions::getPrettyVersion('andronewille/sluis') ?? 'of an unknown version'
+            : 'from a checkout, not installed by Composer';
     }
 
     /** A passphrase in the environment seals the vault; without one it is a private file. */

@@ -79,6 +79,7 @@ The vault is the one thing that holds what was taken out. You keep it; Sluis sto
 | towns | after a cue such as `in`, and from a word list |
 
 Amounts are left alone on purpose. Money is not personal data, and an answer without it is useless.
+To leave more alone, say so: `$sluis->without(PiiType::Url)`, or `$sluis->only(PiiType::Iban, PiiType::Bsn)`.
 
 ## What it promises
 

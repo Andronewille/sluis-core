@@ -61,7 +61,7 @@ final readonly class Anonymise
     {
         foreach ($spans as $span) {
             if (substr($text, $span->start, strlen($span->text)) !== $span->text) {
-                throw CannotPlace::misplaced($span->type, $span->found === '' ? 'a recogniser' : $span->found);
+                throw CannotPlace::misplaced($span->type, $span->by === '' ? 'a recogniser' : $span->by);
             }
         }
     }
@@ -86,7 +86,7 @@ final readonly class Anonymise
 
             foreach ($matches[0] as [$found, $at]) {
                 if ($at !== $span->start) {
-                    $extra[] = new Span($span->type, $at, $found, $span->found.'+elders', $span->confidence);
+                    $extra[] = new Span($span->type, $at, $found, $span->by.'+elders', $span->confidence);
                 }
             }
         }

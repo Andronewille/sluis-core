@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Sluis;
 
+use InvalidArgumentException;
+use NoDiscard;
 use Sluis\Application\Anonymise;
 use Sluis\Application\Deanonymise;
 use Sluis\Application\Ports\Recogniser;
@@ -15,6 +17,7 @@ use Sluis\Infrastructure\Recognisers\Addresses;
 use Sluis\Infrastructure\Recognisers\Chain;
 use Sluis\Infrastructure\Recognisers\Frames;
 use Sluis\Infrastructure\Recognisers\Gazetteer;
+use Sluis\Infrastructure\Recognisers\Only;
 use Sluis\Infrastructure\Recognisers\Patterns;
 use Sluis\Infrastructure\Recognisers\Places;
 
@@ -31,7 +34,13 @@ use Sluis\Infrastructure\Recognisers\Places;
  */
 final readonly class Sluis
 {
-    public function __construct(private Recogniser $recogniser) {}
+    /** @var list<PiiType> what is masked when it is found; everything, until the caller says otherwise */
+    private array $types;
+
+    public function __construct(private Recogniser $recogniser)
+    {
+        $this->types = PiiType::cases();
+    }
 
     /**
      * Everything the core can do without a model: the formats, Dutch addresses,
@@ -53,11 +62,6 @@ final readonly class Sluis
         ));
     }
 
-    public static function with(Recogniser $recogniser): self
-    {
-        return new self($recogniser);
-    }
-
     /** More eyes on the same text; what they disagree about is settled by type. */
     public function plus(Recogniser ...$more): self
     {
@@ -65,7 +69,23 @@ final readonly class Sluis
             ? $this->recogniser->plus(...$more)
             : new Chain($this->recogniser, ...$more);
 
-        return new self($chain);
+        return clone ($this, ['recogniser' => $chain]);
+    }
+
+    /**
+     * Mask these kinds and leave the rest of what is found standing. What is
+     * sensitive enough to take out is the caller's decision; this is where it is
+     * made, whatever recognisers are added before or after.
+     */
+    public function only(PiiType $type, PiiType ...$more): self
+    {
+        return $this->masking(array_filter($this->types, fn (PiiType $kept) => in_array($kept, [$type, ...$more], true)));
+    }
+
+    /** Mask everything that is found except these kinds. */
+    public function without(PiiType $type, PiiType ...$more): self
+    {
+        return $this->masking(array_filter($this->types, fn (PiiType $kept) => ! in_array($kept, [$type, ...$more], true)));
     }
 
     /**
@@ -73,13 +93,30 @@ final readonly class Sluis
      * both. How spellings are grouped is the vault's to say and nobody else's:
      * `Vault::empty(strict: true)` when the text has to come back byte for byte.
      */
+    #[NoDiscard('the masked text and the vault that puts the people back are in what mask() returns')]
     public function mask(string $text, ?Vault $vault = null): Masked
     {
-        return (new Anonymise($this->recogniser))($text, $vault ?? Vault::empty());
+        return (new Anonymise(new Only($this->recogniser, $this->types)))($text, $vault ?? Vault::empty());
     }
 
+    #[NoDiscard('what unmask() returns says which masks could not be put back')]
     public function unmask(string $text, Vault $vault): Restored
     {
         return (new Deanonymise)($text, $vault);
+    }
+
+    /**
+     * A Sluis that masks nothing would report success on every mail it let
+     * through, so narrowing down to nothing is refused where it happens.
+     *
+     * @param  array<PiiType>  $types
+     */
+    private function masking(array $types): self
+    {
+        if ($types === []) {
+            throw new InvalidArgumentException('Nothing is left to mask: every kind Sluis finds was excluded.');
+        }
+
+        return clone ($this, ['types' => array_values($types)]);
     }
 }

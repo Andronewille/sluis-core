@@ -148,7 +148,7 @@ final readonly class Spans implements Countable, IteratorAggregate
             $span->type,
             $span->start + $bestFrom + ($shift === false ? 0 : $shift),
             $trimmed,
-            $span->found.'+rest',
+            $span->by.'+rest',
             $span->confidence,
         );
     }
