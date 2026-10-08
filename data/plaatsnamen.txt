@@ -1,0 +1,77 @@
+# Dutch places, as a floor under the cue rule. A seed list: the towns big enough
+# that a mail is likely to name one, minus those that are also ordinary words
+# (Best, Bergen, Ede stay out, or every "best" in the language is a town). Feed
+# it the open BAG or CBS list yourself for real coverage — Sluis reads a file and
+# never fetches one.
+Alkmaar
+Almere
+Alphen aan den Rijn
+Amersfoort
+Amstelveen
+Amsterdam
+Apeldoorn
+Arnhem
+Assen
+Breda
+Capelle aan den IJssel
+Delft
+Den Bosch
+Den Haag
+Den Helder
+Deventer
+Doetinchem
+Dordrecht
+Drachten
+Eindhoven
+Emmen
+Enschede
+Gouda
+Groningen
+Haarlem
+Heerenveen
+Heerlen
+Helmond
+Hengelo
+Hilversum
+Hoofddorp
+Hoorn
+Kampen
+Katwijk
+Leeuwarden
+Leiden
+Lelystad
+Maastricht
+Meppel
+Middelburg
+Nieuwegein
+Nijmegen
+Oosterhout
+Oss
+Purmerend
+Rijswijk
+Roermond
+Roosendaal
+Rotterdam
+Schiedam
+Sittard
+Sneek
+Spijkenisse
+Terneuzen
+Tiel
+Tilburg
+Utrecht
+Veenendaal
+Venlo
+Vlaardingen
+Vlissingen
+Waalwijk
+Wageningen
+Weert
+Woerden
+Zaandam
+Zaltbommel
+Zeist
+Zoetermeer
+Zutphen
+Zwolle
+'s-Hertogenbosch

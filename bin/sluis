@@ -1,0 +1,15 @@
+#!/usr/bin/env php
+<?php
+
+use Sluis\Infrastructure\Cli\Console;
+
+// Installed as a dependency, installed on its own, or run out of the workspace.
+foreach ([__DIR__.'/../../../autoload.php', __DIR__.'/../vendor/autoload.php', __DIR__.'/../../../vendor/autoload.php'] as $autoload) {
+    if (is_file($autoload)) {
+        require $autoload;
+
+        break;
+    }
+}
+
+exit((new Console)->run($argv, STDIN, STDOUT, STDERR));
