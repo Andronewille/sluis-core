@@ -38,10 +38,12 @@ final class Console
                    when it is not told which
       unmask       put them back; needs the vault that took them out
 
-      --vault=PATH where the vault goes, or comes from (default sluis-vault.json)
+      --vault=PATH where the vault goes, or comes from (default sluis-vault.json;
+                   with --json there is no default, and no file unless you name one)
       --strict     keep every spelling apart, so the text comes back byte for byte
       --json       mask answers {"text":…,"found":…,"vault":…} and writes no file;
-                   unmask reads {"text":…,"vault":…} and answers {"text":…,"stray":…}
+                   unmask reads {"text":…,"vault":…} and answers
+                   {"text":…,"unrestored":…,"stray":…}
       --raw=TEXT   the text, instead of stdin. An argument can be read by everyone
                    on the machine while the command runs: for trying sluis out,
                    not for somebody's mail
@@ -82,17 +84,20 @@ final class Console
             return 0;
         }
 
-        $text = $options['raw'] ?? stream_get_contents($in);
+        $text = $options['raw'] ?? $this->read($in);
 
-        if ($text === false) {
+        if ($text === null) {
             fwrite($err, "Sluis could not read its input.\n");
 
             return 1;
         }
 
         $store = $this->store();
-        // `mask --json` hands the vault back and writes no file unless told where.
-        $path = $options['vault'] ?? ($options['json'] && ! $options['unmask'] ? null : 'sluis-vault.json');
+        // With `--json` the vault travels with the text, both ways, and a file is
+        // only used when it is named. The default file belongs to the runs that
+        // wrote it: every vault numbers from one, so it would fit a text it was
+        // never made for and put the wrong people back without a word.
+        $path = $options['vault'] ?? ($options['json'] ? null : 'sluis-vault.json');
 
         try {
             return $options['unmask']
@@ -132,8 +137,10 @@ final class Console
         if ($options['json']) {
             fwrite($out, json_encode([
                 'text' => $masked->text,
-                'found' => $masked->found,
-                'vault' => $masked->vault->toArray(),
+                // As objects also when empty, which PHP would write as lists:
+                // whoever reads this is not PHP and expects one shape.
+                'found' => (object) $masked->found,
+                'vault' => array_replace($masked->vault->toArray(), ['entries' => (object) $masked->vault->toArray()['entries']]),
             ], self::JSON)."\n");
 
             return 0;
@@ -161,14 +168,16 @@ final class Console
             $given = json_decode($text, true);
             $held = is_array($given) ? ($given['vault'] ?? null) : null;
 
-            if (! is_array($given) || ! is_string($given['text'] ?? null) || ($held !== null && ! is_array($held))) {
+            if (! is_array($given) || ! is_string($given['text'] ?? null)) {
                 fwrite($err, "With --json, unmask reads {\"text\":…,\"vault\":…}.\n");
 
                 return 2;
             }
 
             $text = $given['text'];
-            $vault = $held === null ? null : Vault::fromArray($held);
+            // Asked wrongly is the envelope; a vault in it that is no vault went
+            // wrong, the way a file that is no vault does.
+            $vault = $held === null ? null : Vault::fromArray(is_array($held) ? $held : []);
         }
 
         if ($vault === null && $path !== null && $store->exists($path)) {
@@ -245,7 +254,11 @@ final class Console
                 $argument === '--help' || $argument === '-h' => $options['help'] = true,
                 $argument === '--version' => $options['version'] = true,
                 $argument === '--reverse' => throw new RuntimeException('--reverse is now a command: sluis unmask.'),
-                default => throw new RuntimeException("Sluis does not know {$argument}."),
+                // Only the name of an option is ever said back. Whatever else was
+                // typed here may be the mail, with the quotes forgotten.
+                default => throw new RuntimeException(preg_match('/^--?[a-z][a-z-]*$/', (string) $name) === 1
+                    ? "Sluis does not know {$name}."
+                    : 'Sluis takes options and nothing else; the text goes in on stdin.'),
             };
         }
 
@@ -258,6 +271,29 @@ final class Console
         }
 
         return $options;
+    }
+
+    /**
+     * Everything on the stream, or null when reading it went wrong. PHP says so
+     * with a notice and hands back what it had, which for a pipe that broke
+     * halfway is half a mail: masked, reported as done, and missing the half
+     * that nobody will look for.
+     *
+     * @param  resource  $in
+     */
+    private function read($in): ?string
+    {
+        set_error_handler(static fn (): bool => throw new RuntimeException('unreadable'));
+
+        try {
+            $text = stream_get_contents($in);
+        } catch (RuntimeException) {
+            return null;
+        } finally {
+            restore_error_handler();
+        }
+
+        return $text === false ? null : $text;
     }
 
     /**
@@ -285,9 +321,15 @@ final class Console
      */
     private function version(): string
     {
-        return class_exists(InstalledVersions::class) && InstalledVersions::isInstalled('andronewille/sluis')
-            ? InstalledVersions::getPrettyVersion('andronewille/sluis') ?? 'of an unknown version'
-            : 'from a checkout, not installed by Composer';
+        $version = class_exists(InstalledVersions::class) && InstalledVersions::isInstalled('andronewille/sluis')
+            ? InstalledVersions::getPrettyVersion('andronewille/sluis')
+            : null;
+
+        // Composer makes one up for a package that is its own root and has no
+        // tag to read: a number that looks like a release and is not one.
+        return $version === null || str_contains($version, 'no-version-set')
+            ? 'from a checkout, not installed by Composer'
+            : $version;
     }
 
     /** A passphrase in the environment seals the vault; without one it is a private file. */

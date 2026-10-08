@@ -11,6 +11,11 @@ use Sluis\Domain\Spans;
  * the frame a letter is written in, a model — the application layer cannot tell
  * them apart, which is the whole reason a model is optional here.
  *
+ * A recogniser answers with every claim it makes, overlapping or not: settling
+ * them is done once, for all recognisers together, after the caller's choice of
+ * what to mask. One that settles its own drops a claim the caller wanted in
+ * favour of one the caller left out.
+ *
  * A recogniser answers with spans it can point at. If it knows something is there
  * and cannot say where, it throws `CannotPlace`: silence would leave the value in
  * the text, and this is a tool whose only job is that it does not.

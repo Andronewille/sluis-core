@@ -11,6 +11,7 @@ use Sluis\Domain\Masked;
 use Sluis\Domain\PiiType;
 use Sluis\Domain\Span;
 use Sluis\Domain\Spans;
+use Sluis\Domain\Unreadable;
 use Sluis\Domain\Vault;
 
 /** The forward half: text in, text with the people taken out and a vault that can put them back. */
@@ -28,7 +29,11 @@ final readonly class Anonymise
     {
         $vault ??= Vault::empty();
 
-        $spans = $this->recogniser->recognise($text)->resolved();
+        if (! mb_check_encoding($text, 'UTF-8')) {
+            throw Unreadable::notUtf8();
+        }
+
+        $spans = $this->chosen($this->recogniser->recognise($text))->resolved();
 
         $this->refuseAWrongOffset($text, $spans);
 
@@ -41,45 +46,41 @@ final readonly class Anonymise
         // named in the mail is voornaam1mask, which is what makes a masked text
         // still readable to whoever has to check what the model did with it.
         foreach ($spans as $i => $span) {
-            if (! $this->wants($span)) {
-                continue;
-            }
-
             $tokens[$i] = $vault->mint($span->type, $span->text, fn (string $token) => stripos($text, $token) !== false);
             $found[$span->type->value] = ($found[$span->type->value] ?? 0) + 1;
         }
 
-        // Backwards, so every offset still points at what it pointed at. What the
-        // caller chose to leave alone stays in the text and is blanked in the copy
-        // the last check reads: a first name inside a street that was left
-        // standing was left there on purpose, and is not a leak.
+        // Backwards, so every offset still points at what it pointed at.
         $masked = $text;
-        $checked = $text;
-        $taken = [];
 
         foreach (array_reverse([...$spans], preserve_keys: true) as $i => $span) {
-            $masked = isset($tokens[$i]) ? substr_replace($masked, $tokens[$i], $span->start, strlen($span->text)) : $masked;
-            $checked = substr_replace($checked, $tokens[$i] ?? ' ', $span->start, strlen($span->text));
-
-            if (isset($tokens[$i])) {
-                $taken[] = $span;
-            }
+            $masked = substr_replace($masked, $tokens[$i], $span->start, strlen($span->text));
         }
 
-        $this->refuseToLeak($checked, new Spans(...$taken));
+        $this->refuseToLeak($masked, $spans);
 
         return new Masked($masked, $vault, $found);
     }
 
     /**
-     * Asked last, once a value found in one place has been found in all of them
-     * and the overlaps are settled. Asked any sooner, a kind that is left alone
-     * gives up the words it had outranked: `Jan Steenlaan 4` kept as an address
-     * and `Jan` masked out of the middle of it, because a Jan signed the mail.
+     * The caller's choice of what to mask, made before anything else: a kind that
+     * is left out is as if no rule for it existed. It cannot be made later.
+     * Overlaps are settled by rank, so a claim that is left out would first win
+     * its overlap and then be dropped, and take with it the claim the caller did
+     * want — a telephone number that happens to pass the elfproef, a first name
+     * a place cue also matched. Both stayed readable when this was asked last.
+     *
+     * The price is the other direction, which is the one to be wrong in: with
+     * addresses left alone, the first name in `Jan Steenlaan 4` is a first name
+     * again and is masked.
      */
-    private function wants(Span $span): bool
+    private function chosen(Spans $claims): Spans
     {
-        return $this->only === null || in_array($span->type, $this->only, true);
+        if ($this->only === null) {
+            return $claims;
+        }
+
+        return new Spans(...array_filter([...$claims], fn (Span $span) => in_array($span->type, $this->only, true)));
     }
 
     /**
@@ -107,17 +108,35 @@ final readonly class Anonymise
      */
     private function everywhere(string $text, Spans $spans): Spans
     {
+        // Each value is looked for once, and a place a span already stands is not
+        // claimed again. A name that signs forty mails of one thread is forty
+        // spans; asked forty times where it occurs, it was sixteen hundred, and
+        // a long thread ran out of memory before it was masked.
+        $standing = [];
+        $asked = [];
         $extra = [];
 
         foreach ($spans as $span) {
-            $pattern = '/(?<![\p{L}\p{N}_])'.preg_quote($span->text, '/').'(?![\p{L}\p{N}_])/iu';
+            $standing[$span->type->value.'|'.$span->start.'|'.strlen($span->text)] = true;
+        }
 
-            if (preg_match_all($pattern, $text, $matches, PREG_OFFSET_CAPTURE) === false) {
+        foreach ($spans as $span) {
+            if (isset($asked[$span->type->value.'|'.$span->text])) {
                 continue;
             }
 
+            $asked[$span->type->value.'|'.$span->text] = true;
+            $pattern = '/(?<![\p{L}\p{N}_])'.preg_quote($span->text, '/').'(?![\p{L}\p{N}_])/iu';
+
+            if (preg_match_all($pattern, $text, $matches, PREG_OFFSET_CAPTURE) === false) {
+                throw Unreadable::text();
+            }
+
             foreach ($matches[0] as [$found, $at]) {
-                if ($at !== $span->start) {
+                $place = $span->type->value.'|'.$at.'|'.strlen($found);
+
+                if (! isset($standing[$place])) {
+                    $standing[$place] = true;
                     $extra[] = new Span($span->type, $at, $found, $span->by.'+elders', $span->confidence);
                 }
             }
@@ -133,10 +152,24 @@ final readonly class Anonymise
      */
     private function refuseToLeak(string $masked, Spans $spans): void
     {
+        $checked = [];
+
         foreach ($spans as $span) {
+            // Once for each value, not once for each place it stood.
+            if (isset($checked[$span->text])) {
+                continue;
+            }
+
+            $checked[$span->text] = true;
             $pattern = '/(?<![\p{L}\p{N}_])'.preg_quote($span->text, '/').'(?![\p{L}\p{N}_])/u';
 
-            if (preg_match($pattern, $masked) === 1) {
+            $standing = preg_match($pattern, $masked);
+
+            if ($standing === false) {
+                throw Unreadable::text();
+            }
+
+            if ($standing === 1) {
                 throw new Leaked("A {$span->type->value} is still readable in the masked text.");
             }
         }

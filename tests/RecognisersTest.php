@@ -46,7 +46,7 @@ class RecognisersTest extends TestCase
     #[DataProvider('patterns')]
     public function test_it_finds_a_format(string $text, PiiType $type, string $expected): void
     {
-        $spans = (new Patterns)->recognise($text);
+        $spans = (new Patterns)->recognise($text)->resolved();
 
         $this->assertCount(1, $spans, 'found '.count($spans)." spans in: {$text}");
         $this->assertSame($type, $spans->first()->type);
@@ -81,7 +81,7 @@ class RecognisersTest extends TestCase
     public function test_a_format_does_not_swallow_the_word_after_it(): void
     {
         foreach (['Op NL91ABNA0417164300 gestort.', 'Op nl91 abna 0417 1643 00 euro gestort.'] as $text) {
-            $spans = (new Patterns)->recognise($text);
+            $spans = (new Patterns)->recognise($text)->resolved();
 
             $this->assertCount(1, $spans, 'found '.count($spans)." spans in: {$text}");
             $this->assertSame(PiiType::Iban, $spans->first()->type);
@@ -253,7 +253,7 @@ class RecognisersTest extends TestCase
 
     public function test_a_gazetteer_finds_what_it_was_given(): void
     {
-        $spans = (new Gazetteer(PiiType::Stad, ['Haasterdam', 'Utrecht']))->recognise('van Utrecht naar Haasterdam');
+        $spans = (new Gazetteer(PiiType::Stad, ['Haasterdam', 'Utrecht']))->recognise('van Utrecht naar Haasterdam')->resolved();
 
         $this->assertCount(2, $spans);
         $this->assertSame(['Utrecht', 'Haasterdam'], array_map(fn ($s) => $s->text, iterator_to_array($spans)));
@@ -276,5 +276,47 @@ class RecognisersTest extends TestCase
         $this->expectExceptionMessage('word list');
 
         Gazetteer::fromFile(PiiType::Achternaam, __DIR__.'/achternamen-die-er-niet-zijn.txt');
+    }
+
+    /**
+     * A file that is there and holds no word finds as little as one that is not
+     * there: a download that stopped, a list that is all comments, a file saved
+     * as UTF-16.
+     */
+    public function test_a_gazetteer_refuses_a_list_with_no_words_in_it(): void
+    {
+        $path = sys_get_temp_dir().'/sluis-lijst-'.bin2hex(random_bytes(6)).'.txt';
+
+        try {
+            foreach (['', "# achternamen\n# nog te vullen\n", "\xFF\xFEd\x00e\x00 \x00V\x00r\x00i\x00e\x00s\x00"] as $contents) {
+                file_put_contents($path, $contents);
+
+                try {
+                    Gazetteer::fromFile(PiiType::Achternaam, $path);
+                    $refused = false;
+                } catch (RuntimeException) {
+                    $refused = true;
+                }
+
+                $this->assertTrue($refused);
+            }
+        } finally {
+            unlink($path);
+        }
+    }
+
+    /** The byte order mark some editors write made the first name on the list one that no text contains. */
+    public function test_a_gazetteer_reads_past_a_byte_order_mark(): void
+    {
+        $path = sys_get_temp_dir().'/sluis-lijst-'.bin2hex(random_bytes(6)).'.txt';
+        file_put_contents($path, "\u{FEFF}de Vries\nBouwmeester\n");
+
+        try {
+            $spans = Gazetteer::fromFile(PiiType::Achternaam, $path)->recognise('Bel Sanne de Vries of Petra Bouwmeester.');
+        } finally {
+            unlink($path);
+        }
+
+        $this->assertCount(2, $spans);
     }
 }

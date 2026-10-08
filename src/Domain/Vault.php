@@ -47,15 +47,19 @@ final class Vault
      * shape is checked rather than cast: an entry that is not a type and a value
      * is refused, because a vault that half loads puts half the people back.
      *
+     * It has to say it is a vault, too. Read as an empty one, any other JSON a
+     * path happens to point at — an answer that was saved, a composer.json — is
+     * a vault with nobody in it, and the next run writes over it.
+     *
      * @param  array<array-key, mixed>  $data
      */
     public static function fromArray(array $data): self
     {
         $strict = $data['strict'] ?? false;
-        $entries = $data['entries'] ?? [];
+        $entries = $data['entries'] ?? null;
 
-        if (! is_bool($strict) || ! is_array($entries)) {
-            throw new InvalidArgumentException('The vault is not one Sluis wrote: strict is not yes or no, or its entries are not a list.');
+        if (($data['version'] ?? null) !== 1 || ! is_bool($strict) || ! is_array($entries)) {
+            throw new InvalidArgumentException('That is not a vault this version of Sluis reads: it wants version 1, strict as yes or no, and entries.');
         }
 
         $vault = new self($strict);
@@ -68,6 +72,13 @@ final class Vault
                 throw new InvalidArgumentException('The vault is not one Sluis wrote: an entry has no type or no value.');
             }
 
+            // A token is what `mint()` makes and nothing looser. A list where the
+            // entries should be has the tokens 0, 1, 2, and an empty key is a token
+            // that stands between every two characters of the text.
+            if (preg_match('/^[a-z]+\d+mask$/', (string) $token) !== 1) {
+                throw new InvalidArgumentException('The vault is not one Sluis wrote: an entry is not filed under a mask.');
+            }
+
             $vault->put(
                 (string) $token,
                 PiiType::tryFrom($type) ?? throw new InvalidArgumentException('The vault names a type Sluis does not know.'),
@@ -76,6 +87,18 @@ final class Vault
         }
 
         return $vault;
+    }
+
+    /**
+     * The one place that says whether a piece of JSON is a vault. A file, a
+     * sealed file and an answer on stdin all ask here, so all three refuse the
+     * same things in the same words.
+     */
+    public static function fromJson(string $json): self
+    {
+        $data = json_decode($json, true);
+
+        return self::fromArray(is_array($data) ? $data : []);
     }
 
     /** @return array<string, mixed> */
@@ -138,15 +161,10 @@ final class Vault
         return array_map(fn (array $entry) => $entry['type'], $this->entries);
     }
 
-    /**
-     * Cast, because PHP turns a key that reads as a number into one: a vault a
-     * caller built with the token `12` would hand an int to everything after it.
-     *
-     * @return list<string>
-     */
+    /** @return list<string> */
     public function tokens(): array
     {
-        return array_map(strval(...), array_keys($this->entries));
+        return array_keys($this->entries);
     }
 
     public function isStrict(): bool

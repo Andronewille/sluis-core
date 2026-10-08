@@ -69,7 +69,7 @@ class CliTest extends TestCase
     /** No vault file is written when the caller did not ask for one. */
     public function test_json_alone_leaves_nothing_on_disk(): void
     {
-        $this->sluis(['--json', '--raw='.self::MAIL]);
+        $this->inItsOwnDirectory(fn () => $this->sluis(['--json', '--raw='.self::MAIL]));
 
         $this->assertSame([], glob($this->dir.'/*'));
     }
@@ -186,8 +186,8 @@ class CliTest extends TestCase
      */
     public function test_what_mask_answers_in_json_is_what_unmask_reads(): void
     {
-        [, $masked] = $this->sluis(['mask', '--json'], self::MAIL);
-        [$code, $out] = $this->sluis(['unmask', '--json'], $masked);
+        [, $masked] = $this->inItsOwnDirectory(fn () => $this->sluis(['mask', '--json'], self::MAIL));
+        [$code, $out] = $this->inItsOwnDirectory(fn () => $this->sluis(['unmask', '--json'], $masked));
 
         $this->assertSame(0, $code);
         $answer = json_decode($out, true, flags: JSON_THROW_ON_ERROR);
@@ -199,7 +199,7 @@ class CliTest extends TestCase
 
     public function test_unmask_in_json_says_which_masks_it_could_not_place(): void
     {
-        [$code, $out] = $this->sluis(['unmask', '--json'], '{"text":"Hey voornaam9mask.","vault":{"entries":{}}}');
+        [$code, $out] = $this->sluis(['unmask', '--json'], '{"text":"Hey voornaam9mask.","vault":{"version":1,"entries":{}}}');
 
         $this->assertSame(4, $code);
         $answer = json_decode($out, true, flags: JSON_THROW_ON_ERROR);
@@ -219,7 +219,7 @@ class CliTest extends TestCase
 
     public function test_unmask_in_json_without_a_vault_anywhere_has_no_vault(): void
     {
-        [$code] = $this->sluis(['unmask', '--json'], '{"text":"Hey voornaam1mask."}');
+        [$code] = $this->inItsOwnDirectory(fn () => $this->sluis(['unmask', '--json'], '{"text":"Hey voornaam1mask."}'));
 
         $this->assertSame(3, $code);
     }
@@ -261,16 +261,20 @@ class CliTest extends TestCase
         [$code, , $err] = $this->sluis(['--reverse'], 'voornaam1mask');
 
         $this->assertSame(2, $code);
-        $this->assertStringContainsString('sluis unmask', $err);
+        $this->assertStringContainsString('--reverse is now a command', $err);
     }
 
     /**
-     * The command comes first or not at all. `sluis --json unmask` read as unmask
-     * would be a guess about which way personal data should flow.
+     * The command comes first or not at all. A bare word further on, read as the
+     * command, would be a guess about which way personal data should flow: here
+     * it would unmask a text that was handed in to be masked.
      */
     public function test_a_command_that_does_not_come_first_is_not_guessed_at(): void
     {
-        [$code, $out] = $this->sluis(['--json', 'unmask'], self::MAIL);
+        $path = $this->dir.'/v.json';
+        [, $masked] = $this->sluis(['--vault='.$path], self::MAIL);
+
+        [$code, $out] = $this->sluis(['--vault='.$path, 'unmask'], $masked);
 
         $this->assertSame(2, $code);
         $this->assertSame('', $out);
@@ -309,14 +313,7 @@ class CliTest extends TestCase
      */
     public function test_another_option_is_never_the_value_of_this_one(): void
     {
-        $here = (string) getcwd();
-        chdir($this->dir);
-
-        try {
-            [$code, $out, $err] = $this->sluis(['--vault', '--json'], self::MAIL);
-        } finally {
-            chdir($here);
-        }
+        [$code, $out, $err] = $this->inItsOwnDirectory(fn () => $this->sluis(['--vault', '--json'], self::MAIL));
 
         $this->assertSame(2, $code);
         $this->assertSame('', $out);
@@ -324,22 +321,142 @@ class CliTest extends TestCase
         $this->assertSame([], glob($this->dir.'/*'));
     }
 
-    /** The vault `sluis` wrote without being told where is the one `unmask --json` reads without being told where. */
-    public function test_unmask_in_json_finds_the_vault_in_its_usual_place(): void
+    /**
+     * With `--json` the vault travels with the text. The file an earlier plain run
+     * left in the directory belongs to that run: every vault numbers from one, so
+     * it fits a text it was never made for and puts the wrong people back.
+     */
+    public function test_unmask_in_json_never_reaches_for_a_vault_it_was_not_given(): void
+    {
+        [$code, $out] = $this->inItsOwnDirectory(function () {
+            $this->sluis([], 'Hey Karel, tot morgen. Mvg, Bob');
+
+            return $this->sluis(['unmask', '--json'], '{"text":"Beste voornaam1mask, tot morgen. Groet, voornaam2mask"}');
+        });
+
+        $this->assertSame(3, $code);
+        $this->assertStringNotContainsString('Karel', $out);
+    }
+
+    public function test_a_vault_in_the_json_wins_over_one_on_disk(): void
+    {
+        $path = $this->dir.'/v.json';
+        $this->sluis(['--vault='.$path], 'Hey Karel, tot morgen. Mvg, Bob');
+        [, $masked] = $this->sluis(['--json'], 'Hey Fatima, tot morgen. Mvg, Ali');
+
+        [$code, $out] = $this->sluis(['unmask', '--json', '--vault='.$path], $masked);
+
+        $this->assertSame(0, $code);
+        $this->assertStringContainsString('Hey Fatima, tot morgen. Mvg, Ali', $out);
+    }
+
+    public function test_strict_means_nothing_to_unmask_and_is_refused_there(): void
+    {
+        [$code, $out, $err] = $this->sluis(['unmask', '--strict', '--vault='.$this->dir.'/v.json'], 'voornaam1mask');
+
+        $this->assertSame(2, $code);
+        $this->assertSame('', $out);
+        $this->assertStringContainsString('--strict', $err);
+    }
+
+    /**
+     * PHP writes an empty map as a list. Whoever reads the answer is not PHP and
+     * expects one shape, and got the other on exactly the mails with nobody in
+     * them.
+     */
+    public function test_json_has_one_shape_whether_or_not_anything_was_found(): void
+    {
+        [, $out] = $this->sluis(['--json'], 'Tot morgen.');
+
+        $this->assertStringContainsString('"found":{}', $out);
+        $this->assertStringContainsString('"entries":{}', $out);
+    }
+
+    /**
+     * Only the name of an option is ever said back. Anything else on the command
+     * line may be the mail with its quotes forgotten, and stderr is a thing that
+     * gets mailed by cron and kept by CI.
+     */
+    public function test_an_argument_that_is_not_an_option_is_not_quoted_back(): void
+    {
+        foreach ([['--raw', 'Hey', 'Karel,', 'bel', '0612345678'], ['Hey Karel, bel 0612345678'], ['--text=Hey Karel, bel 0612345678']] as $argv) {
+            [$code, $out, $err] = $this->sluis($argv);
+
+            $this->assertSame(2, $code);
+            $this->assertSame('', $out);
+            $this->assertStringNotContainsString('Karel', $err);
+            $this->assertStringNotContainsString('0612345678', $err);
+        }
+    }
+
+    /**
+     * Any JSON at `--vault` used to read as a vault with nobody in it, and was
+     * then written over. The file is left as it was and the run says why.
+     */
+    public function test_a_file_that_is_not_a_vault_is_not_written_over(): void
+    {
+        file_put_contents($path = $this->dir.'/antwoord.json', $before = '{"text":"Hey voornaam1mask","found":{"voornaam":1}}');
+
+        [$code, $out] = $this->sluis(['--vault='.$path], self::MAIL);
+
+        $this->assertSame(1, $code);
+        $this->assertSame('', $out);
+        $this->assertSame($before, file_get_contents($path));
+    }
+
+    /**
+     * A mail in Windows-1252 has one byte for é, and every pattern in Sluis
+     * answers a text with that byte in it with "no match". The mail went out as
+     * it came in, name and number and iban, with exit 0.
+     */
+    public function test_text_that_is_not_utf8_is_refused_rather_than_passed_through(): void
+    {
+        [$code, $out, $err] = $this->sluis(['--vault='.$this->dir.'/v.json'], "Hey Karel, het caf\xE9 is open. Bel 0612345678. Mvg, Bob\n");
+
+        $this->assertSame(1, $code);
+        $this->assertSame('', $out);
+        $this->assertStringContainsString('UTF-8', $err);
+        $this->assertStringNotContainsString('Karel', $err);
+    }
+
+    /**
+     * A read that fails hands back what it had and a notice. Half a mail, masked
+     * and reported as done, is missing the half nobody will look for.
+     */
+    public function test_input_that_cannot_be_read_is_not_an_empty_text(): void
+    {
+        $in = fopen($this->dir, 'r');
+        $out = $this->memory();
+        $err = $this->memory();
+        $this->assertIsResource($in);
+
+        $code = (new Console)->run(['sluis', '--json'], $in, $out, $err);
+
+        rewind($out);
+        rewind($err);
+        $this->assertSame(1, $code);
+        $this->assertSame('', stream_get_contents($out));
+        $this->assertStringContainsString('could not read its input', (string) stream_get_contents($err));
+    }
+
+    /**
+     * The command where the vault's default path is its own directory, so a file
+     * the command should not have written is one the test will see.
+     *
+     * @template T
+     *
+     * @param  callable(): T  $run
+     * @return T
+     */
+    private function inItsOwnDirectory(callable $run): mixed
     {
         $here = (string) getcwd();
         chdir($this->dir);
 
         try {
-            [, $masked] = $this->sluis([], self::MAIL);
-            [$code, $out] = $this->sluis(['unmask', '--json'], (string) json_encode(['text' => $masked]));
+            return $run();
         } finally {
             chdir($here);
         }
-
-        $this->assertSame(0, $code);
-        $answer = json_decode($out, true, flags: JSON_THROW_ON_ERROR);
-        $this->assertIsArray($answer);
-        $this->assertSame(self::MAIL."\n", $answer['text']);
     }
 }

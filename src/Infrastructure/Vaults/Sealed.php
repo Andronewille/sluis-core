@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Sluis\Infrastructure\Vaults;
 
+use InvalidArgumentException;
 use RuntimeException;
 use SensitiveParameter;
 use Sluis\Application\Ports\VaultStore;
@@ -69,18 +70,23 @@ final readonly class Sealed implements VaultStore
             throw new RuntimeException('That vault did not open with this key.');
         }
 
-        $data = json_decode($json, true, flags: JSON_THROW_ON_ERROR);
-        sodium_memzero($json);
-
-        if (! is_array($data)) {
-            throw new RuntimeException("That file is not a vault: {$handle}.");
+        try {
+            return Vault::fromJson($json);
+        } catch (InvalidArgumentException $e) {
+            throw new RuntimeException("{$handle}: {$e->getMessage()}", previous: $e);
+        } finally {
+            sodium_memzero($json);
         }
-
-        return Vault::fromArray($data);
     }
 
     public function write(string $handle, Vault $vault): void
     {
+        // Before anything is touched: `touch` on a directory succeeds, and the
+        // `chmod` after it would close the directory to its owner.
+        if (is_dir($handle)) {
+            throw new RuntimeException("The vault cannot be written to {$handle}: that is a directory.");
+        }
+
         $salt = random_bytes(16);
         $nonce = random_bytes(SODIUM_CRYPTO_SECRETBOX_NONCEBYTES);
 

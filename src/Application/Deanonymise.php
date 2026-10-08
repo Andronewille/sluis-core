@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Sluis\Application;
 
 use Sluis\Domain\Restored;
+use Sluis\Domain\Unreadable;
 use Sluis\Domain\Vault;
 
 /**
@@ -31,14 +32,16 @@ final readonly class Deanonymise
             $pattern = '/(?<![\p{L}\p{N}_])'.preg_quote($token, '/').'(?![\p{L}\p{N}_])/iu';
             $put = $vault->value($token) ?? '';
 
-            $restored = preg_replace_callback($pattern, fn () => $put, $restored, count: $count) ?? $restored;
+            $restored = preg_replace_callback($pattern, fn () => $put, $restored, count: $count) ?? throw Unreadable::text();
 
             if ($count === 0) {
                 $unrestored[] = $token;
             }
         }
 
-        preg_match_all(self::SHAPE, $restored, $left);
+        if (preg_match_all(self::SHAPE, $restored, $left) === false) {
+            throw Unreadable::text();
+        }
 
         return new Restored($restored, $unrestored, array_values(array_unique($left[0])));
     }

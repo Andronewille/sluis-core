@@ -8,6 +8,7 @@ use Sluis\Application\Ports\Recogniser;
 use Sluis\Domain\PiiType;
 use Sluis\Domain\Span;
 use Sluis\Domain\Spans;
+use Sluis\Domain\Unreadable;
 
 /**
  * A Dutch street says what it is in its own last syllable. `Maanstraat`,
@@ -45,7 +46,7 @@ final readonly class Addresses implements Recogniser
     public function recognise(string $text): Spans
     {
         if (preg_match_all(self::PATTERN, $text, $matches, PREG_OFFSET_CAPTURE | PREG_SET_ORDER) === false) {
-            return Spans::none();
+            throw Unreadable::text();
         }
 
         $spans = Spans::none();
@@ -61,7 +62,7 @@ final readonly class Addresses implements Recogniser
             $spans = $spans->with(new Span(PiiType::Adres, $at, $whole, 'adres'));
         }
 
-        return $spans->resolved();
+        return $spans;
     }
 
     private function endsInAStreet(string $name): bool

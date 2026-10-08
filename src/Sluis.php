@@ -40,7 +40,7 @@ final readonly class Sluis
     {
         self::refuseWhatIsNoLongerTaken(func_num_args() - 1);
 
-        $this->types = PiiType::cases();
+        $this->types = self::everyKind();
     }
 
     /**
@@ -79,10 +79,25 @@ final readonly class Sluis
      * Mask these kinds and leave the rest of what is found standing. What is
      * sensitive enough to take out is the caller's decision; this is where it is
      * made, whatever recognisers are added before or after.
+     *
+     * A kind that is left out is as if Sluis had no rule for it, so what it would
+     * have covered is open to the kinds that remain: with addresses left alone,
+     * the `Jan` of `Jan Steenlaan 4` is a first name and is masked.
      */
     public function only(PiiType $type, PiiType ...$more): self
     {
-        return $this->masking(array_filter($this->types, fn (PiiType $kept) => in_array($kept, [$type, ...$more], true)));
+        $asked = [$type, ...array_values($more)];
+
+        $gone = array_map(
+            fn (PiiType $kind) => $kind->value,
+            array_filter($asked, fn (PiiType $kind) => ! in_array($kind, $this->types, true)),
+        );
+
+        if ($gone !== []) {
+            throw new InvalidArgumentException('This Sluis was already told to leave '.implode(', ', $gone).' alone, and only() cannot bring that back.');
+        }
+
+        return $this->masking($asked);
     }
 
     /** Mask everything that is found except these kinds. */
@@ -99,7 +114,7 @@ final readonly class Sluis
     #[NoDiscard('the masked text and the vault that puts the people back are in what mask() returns')]
     public function mask(string $text, ?Vault $vault = null): Masked
     {
-        return (new Anonymise($this->recogniser, $this->types))($text, $vault ?? Vault::empty());
+        return (new Anonymise($this->recogniser, $this->types === self::everyKind() ? null : $this->types))($text, $vault);
     }
 
     #[NoDiscard('what unmask() returns says which masks could not be put back')]
@@ -120,7 +135,15 @@ final readonly class Sluis
             throw new InvalidArgumentException('Nothing is left to mask: every kind Sluis finds was excluded.');
         }
 
-        return clone ($this, ['types' => array_values($types)]);
+        // In the order the kinds are declared and each of them once, so that two
+        // ways of asking for the same thing are the same Sluis.
+        return clone ($this, ['types' => array_values(array_filter(self::everyKind(), fn (PiiType $kind) => in_array($kind, $types, true)))]);
+    }
+
+    /** @return list<PiiType> */
+    private static function everyKind(): array
+    {
+        return PiiType::cases();
     }
 
     /**

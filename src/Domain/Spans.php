@@ -66,24 +66,66 @@ final readonly class Spans implements Countable, IteratorAggregate
         usort($spans, fn (Span $a, Span $b) => [$b->type->precedence(), strlen($b->text), $a->start]
             <=> [$a->type->precedence(), strlen($a->text), $b->start]);
 
+        // What has been kept is filed by where it stands, so a span is compared
+        // with its neighbours and not with every span in the text: a long thread
+        // has thousands, and comparing each with all of them took seconds.
         $kept = [];
+        $filed = [];
         $rejected = [];
 
         foreach ($spans as $span) {
-            $this->clashes($span, $kept) ? $rejected[] = $span : $kept[] = $span;
+            if ($this->clashes($span, $this->near($span, $filed))) {
+                $rejected[] = $span;
+
+                continue;
+            }
+
+            $kept[] = $span;
+            $filed = $this->file($span, $filed);
         }
 
         foreach ($rejected as $span) {
-            $remainder = $this->whatIsLeftOf($span, $kept);
+            $remainder = $this->whatIsLeftOf($span, $this->near($span, $filed));
 
-            if ($remainder !== null && ! $this->clashes($remainder, $kept)) {
+            if ($remainder !== null && ! $this->clashes($remainder, $this->near($remainder, $filed))) {
                 $kept[] = $remainder;
+                $filed = $this->file($remainder, $filed);
             }
         }
 
         usort($kept, fn (Span $a, Span $b) => $a->start <=> $b->start);
 
         return new self(...$kept);
+    }
+
+    /**
+     * @param  array<int, list<Span>>  $filed
+     * @return array<int, list<Span>>
+     */
+    private function file(Span $span, array $filed): array
+    {
+        for ($drawer = $span->start >> 6; $drawer <= max($span->start, $span->end() - 1) >> 6; $drawer++) {
+            $filed[$drawer][] = $span;
+        }
+
+        return $filed;
+    }
+
+    /**
+     * Everything kept that stands in the stretch of text this span does.
+     *
+     * @param  array<int, list<Span>>  $filed
+     * @return list<Span>
+     */
+    private function near(Span $span, array $filed): array
+    {
+        $near = [];
+
+        for ($drawer = $span->start >> 6; $drawer <= max($span->start, $span->end() - 1) >> 6; $drawer++) {
+            array_push($near, ...($filed[$drawer] ?? []));
+        }
+
+        return $near;
     }
 
     /** @param list<Span> $kept */

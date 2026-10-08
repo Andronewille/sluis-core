@@ -8,6 +8,7 @@ use Sluis\Application\Ports\Recogniser;
 use Sluis\Domain\PiiType;
 use Sluis\Domain\Span;
 use Sluis\Domain\Spans;
+use Sluis\Domain\Unreadable;
 
 /**
  * A letter gives its people away by its own shape. The word after `Hey` is a
@@ -72,34 +73,38 @@ final readonly class Frames implements Recogniser
             .'(\s+(?:heer|mevrouw|mevr\.?|dhr\.?|mw\.?|meneer))?\s+'
             .'('.self::NAME.'(?:[ \t]*(?:,|&|\ben\b)[ \t]*'.self::NAME.'){0,3})(?=[,;:!?.\r\n]|\s*$)/u';
 
-        if (preg_match_all($salutation, $text, $matches, PREG_OFFSET_CAPTURE | PREG_SET_ORDER) !== false) {
-            foreach ($matches as $match) {
-                [$run, $from] = $match[2];
-                $formal = trim($match[1][0]) !== '';
+        if (preg_match_all($salutation, $text, $matches, PREG_OFFSET_CAPTURE | PREG_SET_ORDER) === false) {
+            throw Unreadable::text();
+        }
 
-                foreach ($this->namesIn($run) as $at => $name) {
-                    if ($this->isAName($name)) {
-                        $spans = $spans->with(new Span($this->kind($name, $formal), $from + $at, $name, 'aanhef'));
-                    }
+        foreach ($matches as $match) {
+            [$run, $from] = $match[2];
+            $formal = trim($match[1][0]) !== '';
+
+            foreach ($this->namesIn($run) as $at => $name) {
+                if ($this->isAName($name)) {
+                    $spans = $spans->with(new Span($this->kind($name, $formal), $from + $at, $name, 'aanhef'));
                 }
             }
         }
 
         $valediction = '/(?:'.self::VALEDICTIONS.')[ \t\r]*[,.]?'.self::GAP.'('.self::NAME.')(?=[\s,.;:!?]|$)/u';
 
-        if (preg_match_all($valediction, $text, $matches, PREG_OFFSET_CAPTURE | PREG_SET_ORDER) !== false) {
-            foreach ($matches as $match) {
-                [$name, $at] = $match[1];
-
-                if (! $this->isAName($name)) {
-                    continue;
-                }
-
-                $spans = $spans->with(new Span($this->kind($name, formal: false), $at, $name, 'afsluiting'));
-            }
+        if (preg_match_all($valediction, $text, $matches, PREG_OFFSET_CAPTURE | PREG_SET_ORDER) === false) {
+            throw Unreadable::text();
         }
 
-        return $spans->resolved();
+        foreach ($matches as $match) {
+            [$name, $at] = $match[1];
+
+            if (! $this->isAName($name)) {
+                continue;
+            }
+
+            $spans = $spans->with(new Span($this->kind($name, formal: false), $at, $name, 'afsluiting'));
+        }
+
+        return $spans;
     }
 
     /**
@@ -110,7 +115,7 @@ final readonly class Frames implements Recogniser
     private function namesIn(string $run): array
     {
         if (preg_match_all('/'.self::NAME.'/u', $run, $matches, PREG_OFFSET_CAPTURE) === false) {
-            return [];
+            throw Unreadable::text();
         }
 
         $names = [];
