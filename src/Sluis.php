@@ -31,10 +31,7 @@ use Sluis\Infrastructure\Recognisers\Places;
  */
 final readonly class Sluis
 {
-    public function __construct(
-        private Recogniser $recogniser,
-        private bool $strict = false,
-    ) {}
+    public function __construct(private Recogniser $recogniser) {}
 
     /**
      * Everything the core can do without a model: the formats, Dutch addresses,
@@ -42,7 +39,7 @@ final readonly class Sluis
      * are in `data/`. Add the model on top with `plus()`; it is better at prose
      * and it cannot replace a check digit.
      */
-    public static function nederlands(bool $strict = false): self
+    public static function nederlands(): self
     {
         $data = dirname(__DIR__).'/data';
 
@@ -53,12 +50,12 @@ final readonly class Sluis
             new Places,
             Gazetteer::fromFile(PiiType::Voornaam, $data.'/voornamen.txt'),
             Gazetteer::fromFile(PiiType::Stad, $data.'/plaatsnamen.txt'),
-        ), $strict);
+        ));
     }
 
-    public static function with(Recogniser $recogniser, bool $strict = false): self
+    public static function with(Recogniser $recogniser): self
     {
-        return new self($recogniser, $strict);
+        return new self($recogniser);
     }
 
     /** More eyes on the same text; what they disagree about is settled by type. */
@@ -68,12 +65,17 @@ final readonly class Sluis
             ? $this->recogniser->plus(...$more)
             : new Chain($this->recogniser, ...$more);
 
-        return new self($chain, $this->strict);
+        return new self($chain);
     }
 
+    /**
+     * Hand in the vault of an earlier mail and one person stays on one token across
+     * both. How spellings are grouped is the vault's to say and nobody else's:
+     * `Vault::empty(strict: true)` when the text has to come back byte for byte.
+     */
     public function mask(string $text, ?Vault $vault = null): Masked
     {
-        return (new Anonymise($this->recogniser))($text, $vault ?? Vault::empty($this->strict));
+        return (new Anonymise($this->recogniser))($text, $vault ?? Vault::empty());
     }
 
     public function unmask(string $text, Vault $vault): Restored

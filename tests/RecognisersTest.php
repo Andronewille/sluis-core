@@ -6,6 +6,7 @@ namespace Sluis\Tests;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use RuntimeException;
 use Sluis\Domain\PiiType;
 use Sluis\Infrastructure\Recognisers\Addresses;
 use Sluis\Infrastructure\Recognisers\Frames;
@@ -262,5 +263,18 @@ class RecognisersTest extends TestCase
     public function test_a_gazetteer_does_not_match_inside_a_word(): void
     {
         $this->assertCount(0, (new Gazetteer(PiiType::Stad, ['Ede']))->recognise('Een bos Edelweiss meegenomen.'));
+    }
+
+    /**
+     * A list that is not there used to read as an empty one, which finds nothing
+     * and reports success: one wrong letter in the path to a list of surnames and
+     * every one of them goes to the model.
+     */
+    public function test_a_gazetteer_refuses_a_list_that_is_not_there(): void
+    {
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('word list');
+
+        Gazetteer::fromFile(PiiType::Achternaam, __DIR__.'/achternamen-die-er-niet-zijn.txt');
     }
 }

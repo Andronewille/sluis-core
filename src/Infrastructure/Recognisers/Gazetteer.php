@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Sluis\Infrastructure\Recognisers;
 
+use RuntimeException;
 use Sluis\Application\Ports\Recogniser;
 use Sluis\Domain\PiiType;
 use Sluis\Domain\Span;
@@ -41,9 +42,20 @@ final readonly class Gazetteer implements Recogniser
         $this->words = $list;
     }
 
+    /**
+     * A list that is not there is refused rather than read as empty. An empty
+     * list finds nothing and says so to nobody: one wrong letter in the path to
+     * a list of surnames, and every one of them goes to the model.
+     */
     public static function fromFile(PiiType $type, string $path): self
     {
-        return new self($type, is_readable($path) ? (file($path, FILE_IGNORE_NEW_LINES) ?: []) : []);
+        $words = is_file($path) ? @file($path, FILE_IGNORE_NEW_LINES) : false;
+
+        if ($words === false) {
+            throw new RuntimeException("There is no word list to read at {$path}.");
+        }
+
+        return new self($type, $words);
     }
 
     public function recognise(string $text): Spans
