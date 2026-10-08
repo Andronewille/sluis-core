@@ -91,7 +91,8 @@ final class Console
         }
 
         $store = $this->store();
-        $path = $options['vault'] ?? ($options['json'] ? null : 'sluis-vault.json');
+        // `mask --json` hands the vault back and writes no file unless told where.
+        $path = $options['vault'] ?? ($options['json'] && ! $options['unmask'] ? null : 'sluis-vault.json');
 
         try {
             return $options['unmask']
@@ -237,8 +238,8 @@ final class Console
 
             // `--vault=PATH` and `--vault PATH` are the same question.
             match (true) {
-                $name === '--raw' => $options['raw'] = $value ?? array_shift($arguments) ?? throw new RuntimeException('--raw needs the text.'),
-                $name === '--vault' => $options['vault'] = $value ?? array_shift($arguments) ?? throw new RuntimeException('--vault needs a path.'),
+                $name === '--raw' => $options['raw'] = $value ?? $this->next($arguments, '--raw needs the text; write --raw=TEXT when it starts with a dash.'),
+                $name === '--vault' => $options['vault'] = $value ?? $this->next($arguments, '--vault needs a path.'),
                 $argument === '--strict' => $options['strict'] = true,
                 $argument === '--json' => $options['json'] = true,
                 $argument === '--help' || $argument === '-h' => $options['help'] = true,
@@ -248,6 +249,10 @@ final class Console
             };
         }
 
+        if ($options['vault'] === '') {
+            throw new RuntimeException('--vault needs a path.');
+        }
+
         if ($options['unmask'] && $options['strict']) {
             throw new RuntimeException('--strict is decided when a vault is made; unmask reads it from the vault.');
         }
@@ -255,10 +260,32 @@ final class Console
         return $options;
     }
 
-    /** What Composer installed, which is the only place a version is written down. */
+    /**
+     * The value of an option written `--vault PATH`. Another option is never the
+     * value: `--vault $V --json` with nothing in `$V` would write the vault to a
+     * file called `--json` and answer in the wrong shape.
+     *
+     * @param  list<string>  $arguments
+     */
+    private function next(array &$arguments, string $otherwise): string
+    {
+        $value = array_shift($arguments);
+
+        if ($value === null || str_starts_with($value, '-')) {
+            throw new RuntimeException($otherwise);
+        }
+
+        return $value;
+    }
+
+    /**
+     * What Composer installed, which is the only place a version is written down.
+     * Composer is not something the core requires, so it is asked only when it
+     * is there.
+     */
     private function version(): string
     {
-        return InstalledVersions::isInstalled('andronewille/sluis')
+        return class_exists(InstalledVersions::class) && InstalledVersions::isInstalled('andronewille/sluis')
             ? InstalledVersions::getPrettyVersion('andronewille/sluis') ?? 'of an unknown version'
             : 'from a checkout, not installed by Composer';
     }

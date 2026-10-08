@@ -11,6 +11,7 @@ use Sluis\Domain\PiiType;
 use Sluis\Domain\Vault;
 use Sluis\Infrastructure\Vaults\JsonFile;
 use Sluis\Infrastructure\Vaults\Sealed;
+use Sluis\Sluis;
 
 /**
  * The vault is the whole trust boundary: it is the one thing that holds what was
@@ -183,5 +184,37 @@ class VaultTest extends TestCase
             $this->assertStringContainsString('not a vault', $e->getMessage());
             $this->assertStringNotContainsString('Karel', $e->getMessage());
         }
+    }
+
+    /**
+     * A vault a caller built by hand can have its fields the wrong way round, and
+     * then the "type" is somebody's name. The message says a type is unknown and
+     * does not say which.
+     */
+    public function test_an_unknown_type_is_not_quoted_back(): void
+    {
+        try {
+            Vault::fromArray(['entries' => ['voornaam1mask' => ['type' => 'Karel Jansen', 'value' => 'voornaam']]]);
+            $this->fail('A type Sluis does not know was accepted.');
+        } catch (InvalidArgumentException $e) {
+            $this->assertStringNotContainsString('Karel', $e->getMessage());
+        }
+    }
+
+    /** `"false"` is a string, and a string that is not empty is true to a cast. */
+    public function test_strict_is_yes_or_no_and_nothing_that_merely_reads_like_it(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        Vault::fromArray(['strict' => 'false', 'entries' => []]);
+    }
+
+    /** PHP makes the key `12` a number; everything that reads a token expects text. */
+    public function test_a_token_that_reads_as_a_number_is_still_a_token(): void
+    {
+        $vault = Vault::fromArray(['entries' => ['12' => ['type' => 'voornaam', 'value' => 'Karel']]]);
+
+        $this->assertSame(['12'], $vault->tokens());
+        $this->assertSame('x Karel y', Sluis::nederlands()->unmask('x 12 y', $vault)->text);
     }
 }

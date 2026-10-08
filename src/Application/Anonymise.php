@@ -8,6 +8,7 @@ use Sluis\Application\Ports\Recogniser;
 use Sluis\Domain\CannotPlace;
 use Sluis\Domain\Leaked;
 use Sluis\Domain\Masked;
+use Sluis\Domain\PiiType;
 use Sluis\Domain\Span;
 use Sluis\Domain\Spans;
 use Sluis\Domain\Vault;
@@ -15,7 +16,13 @@ use Sluis\Domain\Vault;
 /** The forward half: text in, text with the people taken out and a vault that can put them back. */
 final readonly class Anonymise
 {
-    public function __construct(private Recogniser $recogniser) {}
+    /**
+     * @param  list<PiiType>|null  $only  the kinds to mask; everything that is found, when nothing is said
+     */
+    public function __construct(
+        private Recogniser $recogniser,
+        private ?array $only = null,
+    ) {}
 
     public function __invoke(string $text, ?Vault $vault = null): Masked
     {
@@ -34,20 +41,45 @@ final readonly class Anonymise
         // named in the mail is voornaam1mask, which is what makes a masked text
         // still readable to whoever has to check what the model did with it.
         foreach ($spans as $i => $span) {
+            if (! $this->wants($span)) {
+                continue;
+            }
+
             $tokens[$i] = $vault->mint($span->type, $span->text, fn (string $token) => stripos($text, $token) !== false);
             $found[$span->type->value] = ($found[$span->type->value] ?? 0) + 1;
         }
 
-        // Backwards, so every offset still points at what it pointed at.
+        // Backwards, so every offset still points at what it pointed at. What the
+        // caller chose to leave alone stays in the text and is blanked in the copy
+        // the last check reads: a first name inside a street that was left
+        // standing was left there on purpose, and is not a leak.
         $masked = $text;
+        $checked = $text;
+        $taken = [];
 
         foreach (array_reverse([...$spans], preserve_keys: true) as $i => $span) {
-            $masked = substr_replace($masked, $tokens[$i], $span->start, strlen($span->text));
+            $masked = isset($tokens[$i]) ? substr_replace($masked, $tokens[$i], $span->start, strlen($span->text)) : $masked;
+            $checked = substr_replace($checked, $tokens[$i] ?? ' ', $span->start, strlen($span->text));
+
+            if (isset($tokens[$i])) {
+                $taken[] = $span;
+            }
         }
 
-        $this->refuseToLeak($masked, $spans);
+        $this->refuseToLeak($checked, new Spans(...$taken));
 
         return new Masked($masked, $vault, $found);
+    }
+
+    /**
+     * Asked last, once a value found in one place has been found in all of them
+     * and the overlaps are settled. Asked any sooner, a kind that is left alone
+     * gives up the words it had outranked: `Jan Steenlaan 4` kept as an address
+     * and `Jan` masked out of the middle of it, because a Jan signed the mail.
+     */
+    private function wants(Span $span): bool
+    {
+        return $this->only === null || in_array($span->type, $this->only, true);
     }
 
     /**

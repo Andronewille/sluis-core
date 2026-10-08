@@ -17,7 +17,6 @@ use Sluis\Infrastructure\Recognisers\Addresses;
 use Sluis\Infrastructure\Recognisers\Chain;
 use Sluis\Infrastructure\Recognisers\Frames;
 use Sluis\Infrastructure\Recognisers\Gazetteer;
-use Sluis\Infrastructure\Recognisers\Only;
 use Sluis\Infrastructure\Recognisers\Patterns;
 use Sluis\Infrastructure\Recognisers\Places;
 
@@ -39,6 +38,8 @@ final readonly class Sluis
 
     public function __construct(private Recogniser $recogniser)
     {
+        self::refuseWhatIsNoLongerTaken(func_num_args() - 1);
+
         $this->types = PiiType::cases();
     }
 
@@ -50,6 +51,8 @@ final readonly class Sluis
      */
     public static function nederlands(): self
     {
+        self::refuseWhatIsNoLongerTaken(func_num_args());
+
         $data = dirname(__DIR__).'/data';
 
         return new self(new Chain(
@@ -96,7 +99,7 @@ final readonly class Sluis
     #[NoDiscard('the masked text and the vault that puts the people back are in what mask() returns')]
     public function mask(string $text, ?Vault $vault = null): Masked
     {
-        return (new Anonymise(new Only($this->recogniser, $this->types)))($text, $vault ?? Vault::empty());
+        return (new Anonymise($this->recogniser, $this->types))($text, $vault ?? Vault::empty());
     }
 
     #[NoDiscard('what unmask() returns says which masks could not be put back')]
@@ -118,5 +121,17 @@ final readonly class Sluis
         }
 
         return clone ($this, ['types' => array_values($types)]);
+    }
+
+    /**
+     * 0.1 took `strict` here, and PHP passes an argument a function no longer
+     * declares without a word. A caller who still writes `nederlands(true)` asked
+     * for text that comes back byte for byte and would get the other kind.
+     */
+    private static function refuseWhatIsNoLongerTaken(int $extra): void
+    {
+        if ($extra > 0) {
+            throw new InvalidArgumentException('Strict grouping is the vault\'s to say: pass Vault::empty(strict: true) to mask().');
+        }
     }
 }

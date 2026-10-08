@@ -302,4 +302,44 @@ class CliTest extends TestCase
         $this->assertSame(0, $code);
         $this->assertStringStartsWith('sluis ', $out);
     }
+
+    /**
+     * `--vault $V --json` with nothing in `$V`. The next option was taken for the
+     * path: the vault went to a file called `--json` and the answer was not JSON.
+     */
+    public function test_another_option_is_never_the_value_of_this_one(): void
+    {
+        $here = (string) getcwd();
+        chdir($this->dir);
+
+        try {
+            [$code, $out, $err] = $this->sluis(['--vault', '--json'], self::MAIL);
+        } finally {
+            chdir($here);
+        }
+
+        $this->assertSame(2, $code);
+        $this->assertSame('', $out);
+        $this->assertStringContainsString('--vault needs a path', $err);
+        $this->assertSame([], glob($this->dir.'/*'));
+    }
+
+    /** The vault `sluis` wrote without being told where is the one `unmask --json` reads without being told where. */
+    public function test_unmask_in_json_finds_the_vault_in_its_usual_place(): void
+    {
+        $here = (string) getcwd();
+        chdir($this->dir);
+
+        try {
+            [, $masked] = $this->sluis([], self::MAIL);
+            [$code, $out] = $this->sluis(['unmask', '--json'], (string) json_encode(['text' => $masked]));
+        } finally {
+            chdir($here);
+        }
+
+        $this->assertSame(0, $code);
+        $answer = json_decode($out, true, flags: JSON_THROW_ON_ERROR);
+        $this->assertIsArray($answer);
+        $this->assertSame(self::MAIL."\n", $answer['text']);
+    }
 }

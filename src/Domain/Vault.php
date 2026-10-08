@@ -51,12 +51,14 @@ final class Vault
      */
     public static function fromArray(array $data): self
     {
-        $vault = new self((bool) ($data['strict'] ?? false));
+        $strict = $data['strict'] ?? false;
         $entries = $data['entries'] ?? [];
 
-        if (! is_array($entries)) {
-            throw new InvalidArgumentException('The vault is not one Sluis wrote: its entries are not a list.');
+        if (! is_bool($strict) || ! is_array($entries)) {
+            throw new InvalidArgumentException('The vault is not one Sluis wrote: strict is not yes or no, or its entries are not a list.');
         }
+
+        $vault = new self($strict);
 
         foreach ($entries as $token => $entry) {
             $type = is_array($entry) ? ($entry['type'] ?? null) : null;
@@ -68,7 +70,7 @@ final class Vault
 
             $vault->put(
                 (string) $token,
-                PiiType::tryFrom($type) ?? throw new InvalidArgumentException("The vault names a type Sluis does not know: {$type}."),
+                PiiType::tryFrom($type) ?? throw new InvalidArgumentException('The vault names a type Sluis does not know.'),
                 $value,
             );
         }
@@ -136,10 +138,15 @@ final class Vault
         return array_map(fn (array $entry) => $entry['type'], $this->entries);
     }
 
-    /** @return list<string> */
+    /**
+     * Cast, because PHP turns a key that reads as a number into one: a vault a
+     * caller built with the token `12` would hand an int to everything after it.
+     *
+     * @return list<string>
+     */
     public function tokens(): array
     {
-        return array_keys($this->entries);
+        return array_map(strval(...), array_keys($this->entries));
     }
 
     public function isStrict(): bool

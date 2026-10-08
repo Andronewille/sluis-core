@@ -207,4 +207,33 @@ class PipelineTest extends TestCase
 
         Sluis::nederlands()->only(PiiType::Telefoon)->without(PiiType::Telefoon);
     }
+
+    /**
+     * The same, when the name stands somewhere else as well. A value found once is
+     * masked everywhere, and that used to reach into the street that was being
+     * left alone: the choice was made before the second sighting was looked for.
+     */
+    public function test_a_kind_that_is_left_alone_is_left_alone_when_its_words_are_masked_elsewhere(): void
+    {
+        $sluis = Sluis::nederlands();
+
+        $street = $sluis->without(PiiType::Adres)->mask('Wij zitten aan de Jan Steenlaan 4. Groet, Jan');
+        $link = $sluis->without(PiiType::Url)->mask('Hey Karel, zie https://voorbeeld.nl/karel/foto. Mvg, Bob');
+
+        $this->assertSame('Wij zitten aan de Jan Steenlaan 4. Groet, voornaam1mask', $street->text);
+        $this->assertSame('Hey voornaam1mask, zie https://voorbeeld.nl/karel/foto. Mvg, voornaam2mask', $link->text);
+    }
+
+    /**
+     * 0.1 took `strict` here. PHP hands a function an argument it no longer
+     * declares without complaint, so the caller who still passes it would get
+     * one spelling back where two went in, and no error to say so.
+     */
+    public function test_an_argument_it_no_longer_takes_is_refused_rather_than_dropped(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Vault::empty(strict: true)');
+
+        call_user_func([Sluis::class, 'nederlands'], true);
+    }
 }
